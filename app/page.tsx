@@ -142,7 +142,9 @@ export default function Home() {
 
         {/* Upload / Remove */}
         <div className="w-52 flex-shrink-0">
-          <VideoUploader compact onVideoLoaded={handleVideoLoaded} videoName={videoName} onRemove={handleRemove} />
+          {videoName && (
+            <VideoUploader compact onVideoLoaded={handleVideoLoaded} videoName={videoName} onRemove={handleRemove} />
+          )}
         </div>
       </header>
 
@@ -161,6 +163,7 @@ export default function Home() {
             onMove={moveLayer}
             onAddLayer={addLayer}
             onEditLayer={handleEditLayer}
+            onVideoLoaded={handleVideoLoaded}
           />
         </main>
 

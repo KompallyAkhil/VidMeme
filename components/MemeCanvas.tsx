@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useCallback, forwardRef, useImperativeHandle, useState } from 'react';
 import { TextLayer, drawLayers } from '@/lib/textLayers';
+import VideoUploader from './VideoUploader';
 
 interface MemeCanvasProps {
   videoUrl: string | null;
@@ -12,6 +13,7 @@ interface MemeCanvasProps {
   onMove: (id: string, x: number, y: number) => void;
   onAddLayer: (x: number, y: number) => void;
   onEditLayer: (id: string) => void;
+  onVideoLoaded: (url: string, file: File) => void;
 }
 
 export interface MemeCanvasHandle {
@@ -19,7 +21,7 @@ export interface MemeCanvasHandle {
 }
 
 const MemeCanvas = forwardRef<MemeCanvasHandle, MemeCanvasProps>(
-  ({ videoUrl, videoName, layers, selectedId, onSelect, onMove, onAddLayer, onEditLayer }, ref) => {
+  ({ videoUrl, videoName, layers, selectedId, onSelect, onMove, onAddLayer, onEditLayer, onVideoLoaded }, ref) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const videoRef = useRef<HTMLVideoElement>(null);
     const animRef = useRef<number>(0);
@@ -297,14 +299,8 @@ const MemeCanvas = forwardRef<MemeCanvasHandle, MemeCanvasProps>(
           )}
 
           {!videoUrl && (
-            <div className="flex flex-col items-center justify-center text-center px-8 py-24">
-              <div className="w-16 h-16 bg-white/[0.02] border border-white/[0.06] rounded-2xl flex items-center justify-center text-3xl mb-4">
-                🎬
-              </div>
-              <div className="text-sm font-semibold text-brand-primary mb-1.5">No video loaded</div>
-              <div className="text-xs text-brand-muted max-w-[200px] leading-relaxed">
-                Upload a video, then double-click the canvas to add text
-              </div>
+            <div className="flex items-center justify-center p-8 min-w-[320px]">
+              <VideoUploader onVideoLoaded={onVideoLoaded} onRemove={() => {}} />
             </div>
           )}
         </div>
