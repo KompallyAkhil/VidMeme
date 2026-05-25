@@ -17,6 +17,9 @@ export default function Home() {
   const [layers, setLayers] = useState<TextLayer[]>([makeLayer()]);
   const [selectedId, setSelectedId] = useState<string | null>(layers[0]?.id ?? null);
 
+  const [borderHeight, setBorderHeight] = useState(120);
+  const [borderColor, setBorderColor] = useState('#000000');
+
   const [exportState, setExportState] = useState<ExportState>('idle');
   const [exportProgress, setExportProgress] = useState(0);
   const [exportError, setExportError] = useState('');
@@ -73,10 +76,24 @@ export default function Home() {
     setExportError('');
 
     try {
-      const blob = await exportInBackground(videoFile, layers, format, (p) => setExportProgress(p));
+      const blob = await exportInBackground(
+        videoFile,
+        layers,
+        format,
+        borderHeight,
+        borderColor,
+        (p) => setExportProgress(p)
+      );
       setExportProgress(100);
 
-      const ext = format === 'mp3' ? 'mp3' : 'mp4';
+      let ext = 'mp4';
+      if (format === 'mp3') {
+        ext = 'mp3';
+      } else if (blob.type.includes('webm')) {
+        ext = 'webm';
+      } else if (blob.type.includes('ogg')) {
+        ext = 'ogg';
+      }
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -123,12 +140,9 @@ export default function Home() {
       <header className="flex items-center justify-between px-6 h-14 border-b border-white/[0.07] bg-[rgba(8,8,16,0.95)] backdrop-blur-md z-10 flex-shrink-0">
         {/* Logo */}
         <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 bg-brand-accent rounded-md flex items-center justify-center text-base shadow-[0_0_12px_rgba(255,200,0,0.3)]">🎭</div>
+          
           <span className="text-base font-bold tracking-tight text-brand-primary font-inter">
-            Meme<span className="text-brand-accent">Forge</span>
-          </span>
-          <span className="text-[10px] font-semibold uppercase tracking-widest text-brand-accent bg-brand-accent-dim border border-yellow-500/20 rounded-full px-2 py-0.5">
-            BETA
+            Vide<span className="text-brand-accent">Meme</span>
           </span>
         </div>
 
@@ -141,7 +155,7 @@ export default function Home() {
         )}
 
         {/* Upload / Remove */}
-        <div className="w-52 flex-shrink-0">
+        <div className="w-56 flex-shrink-0">
           {videoName && (
             <VideoUploader compact onVideoLoaded={handleVideoLoaded} videoName={videoName} onRemove={handleRemove} />
           )}
@@ -164,6 +178,8 @@ export default function Home() {
             onAddLayer={addLayer}
             onEditLayer={handleEditLayer}
             onVideoLoaded={handleVideoLoaded}
+            borderHeight={borderHeight}
+            borderColor={borderColor}
           />
         </main>
 
@@ -181,6 +197,10 @@ export default function Home() {
           onUpdateLayer={updateLayer}
           onExport={handleExport}
           onCopyPng={handleCopyPng}
+          borderHeight={borderHeight}
+          borderColor={borderColor}
+          onUpdateBorderHeight={setBorderHeight}
+          onUpdateBorderColor={setBorderColor}
         />
       </div>
     </div>

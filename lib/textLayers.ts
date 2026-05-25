@@ -28,7 +28,7 @@ export function makeLayer(overrides?: Partial<TextLayer>): TextLayer {
     id: Math.random().toString(36).slice(2),
     text: 'TEXT',
     x: 0.5,
-    y: 0.15,
+    y: 0.07,
     fontSize: 72,
     fontFamily: 'Impact',
     color: '#ffffff',

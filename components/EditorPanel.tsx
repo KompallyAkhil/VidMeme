@@ -16,6 +16,10 @@ interface EditorPanelProps {
   onUpdateLayer: (id: string, patch: Partial<TextLayer>) => void;
   onExport: (format: 'mp4' | 'mp3') => void;
   onCopyPng: () => void;
+  borderHeight: number;
+  borderColor: string;
+  onUpdateBorderHeight: (height: number) => void;
+  onUpdateBorderColor: (color: string) => void;
 }
 
 export default function EditorPanel({
@@ -23,6 +27,8 @@ export default function EditorPanel({
   exportState, exportProgress, exportError,
   onSelect, onAddLayer, onDeleteLayer, onUpdateLayer,
   onExport, onCopyPng,
+  borderHeight, borderColor,
+  onUpdateBorderHeight, onUpdateBorderColor,
 }: EditorPanelProps) {
   const [activeTab, setActiveTab] = useState<'text' | 'style'>('text');
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -30,7 +36,7 @@ export default function EditorPanel({
   const selected = layers.find(l => l.id === selectedId) ?? null;
 
   return (
-    <aside className="w-[280px] min-w-[280px] border-l border-white/[0.08] bg-[#0d0d12] flex flex-col overflow-hidden h-full">
+    <aside className="w-[400px] min-w-[400px] border-l border-white/[0.08] bg-[#0d0d12] flex flex-col overflow-hidden h-full">
 
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.08]">
@@ -215,7 +221,10 @@ export default function EditorPanel({
                     {(['left', 'center', 'right'] as const).map((a) => (
                       <button
                         key={a}
-                        onClick={() => onUpdateLayer(selected.id, { align: a })}
+                        onClick={() => {
+                          const x = a === 'left' ? 0.05 : a === 'center' ? 0.5 : 0.95;
+                          onUpdateLayer(selected.id, { align: a, x });
+                        }}
                         className={`flex-1 py-1.5 text-[11px] rounded-md border cursor-pointer transition-all ${
                           selected.align === a
                             ? 'bg-brand-accent border-brand-accent text-black'
@@ -233,11 +242,56 @@ export default function EditorPanel({
         )}
 
         {activeTab === 'style' && (
-          <div className="px-4 py-4 flex flex-col gap-3">
-            <p className="text-[10px] uppercase tracking-widest text-brand-muted font-semibold">Global Defaults</p>
-            <p className="text-[11px] text-brand-muted leading-relaxed">
-              Select a text layer to customise its style individually. Use "Add Text" to add new layers.
-            </p>
+          <div className="px-4 py-4 flex flex-col gap-5">
+            <div className="flex flex-col gap-4 bg-white/[0.03] border border-white/[0.06] rounded-xl p-4">
+              <p className="text-[11px] uppercase tracking-widest text-brand-accent font-bold">Top Border Canvas Config</p>
+              
+              {/* Border Height Slider */}
+              <div className="flex flex-col gap-1.5">
+                <div className="flex justify-between text-[11px] text-brand-secondary font-medium">
+                  <span>Border Height</span>
+                  <span className="text-brand-accent font-mono font-bold tabular-nums">{borderHeight}px</span>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={240}
+                  value={borderHeight}
+                  onChange={(e) => onUpdateBorderHeight(Number(e.target.value))}
+                  className="slider"
+                />
+              </div>
+
+              {/* Border Color Selection */}
+              <div className="flex flex-col gap-2">
+                <span className="text-[11px] text-brand-secondary font-medium">Border Color</span>
+                <div className="flex gap-2 items-center flex-wrap">
+                  {['#000000', '#ffffff', '#ffd700', '#ff4d6d', '#00e676', '#40c4ff'].map((c) => (
+                    <div
+                      key={c}
+                      onClick={() => onUpdateBorderColor(c)}
+                      style={{
+                        background: c,
+                        outline: borderColor === c ? '2px solid #ffb700' : 'none',
+                        outlineOffset: '2px',
+                      }}
+                      className="w-7 h-7 rounded-lg cursor-pointer border border-white/10 hover:scale-110 transition-transform shadow-[0_2px_8px_rgba(0,0,0,0.3)]"
+                    />
+                  ))}
+                  <input
+                    type="color"
+                    value={borderColor}
+                    onChange={(e) => onUpdateBorderColor(e.target.value)}
+                    className="w-7 h-7 bg-transparent border-0 cursor-pointer p-0 select-none outline-none scale-110"
+                    title="Custom color picker"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="text-[11px] text-brand-muted leading-relaxed bg-white/[0.01] border border-white/[0.04] p-3 rounded-lg">
+              ℹ️ Select a text layer under the <strong>Text</strong> tab to edit individual layer properties like font size, stroke, and alignments.
+            </div>
           </div>
         )}
       </div>
@@ -268,45 +322,17 @@ export default function EditorPanel({
         )}
 
         {/* Buttons row */}
-        <div className="flex gap-2">
-          <button
-            id="export-png-btn"
-            onClick={onCopyPng}
-            disabled={!videoFile}
-            className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-[12px] font-semibold border transition-all cursor-pointer ${
-              videoFile
-                ? 'bg-white text-black border-white hover:bg-white/90 active:scale-95'
-                : 'bg-white/[0.04] text-brand-muted border-white/[0.06] cursor-not-allowed'
-            }`}
-          >
-            ⬇ PNG
-          </button>
-          <button
-            id="export-copy-btn"
-            onClick={() => onExport('mp4')}
-            disabled={!videoFile || exportState === 'exporting'}
-            className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-[12px] font-semibold border transition-all cursor-pointer ${
-              videoFile && exportState !== 'exporting'
-                ? 'bg-white/[0.06] text-brand-primary border-white/[0.12] hover:bg-white/[0.1] active:scale-95'
-                : 'bg-white/[0.02] text-brand-muted border-white/[0.04] cursor-not-allowed'
-            }`}
-          >
-            {exportState === 'exporting' ? '⚡ …' : '🎬 Export Video'}
-          </button>
-        </div>
-
-        {/* MP3 button */}
         <button
-          id="export-mp3-btn"
-          onClick={() => onExport('mp3')}
+          id="export-copy-btn"
+          onClick={() => onExport('mp4')}
           disabled={!videoFile || exportState === 'exporting'}
-          className={`w-full py-2 rounded-xl text-[11px] font-semibold border transition-all cursor-pointer ${
+          className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl text-[13px] font-bold border transition-all cursor-pointer ${
             videoFile && exportState !== 'exporting'
-              ? 'bg-white/[0.03] text-brand-secondary border-white/[0.06] hover:border-white/[0.12] hover:text-brand-primary'
+              ? 'bg-brand-accent border-brand-accent text-black hover:bg-brand-accent/90 active:scale-95 shadow-[0_0_12px_rgba(255,200,0,0.2)]'
               : 'bg-white/[0.02] text-brand-muted border-white/[0.04] cursor-not-allowed'
           }`}
         >
-          🎵 Extract MP3
+          {exportState === 'exporting' ? '⚡ Encoding & Downloading Video...' : '🎬 Download Video (MP4)'}
         </button>
       </div>
     </aside>

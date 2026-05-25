@@ -10,17 +10,17 @@ module.exports = {
       colors: {
         brand: {
           bg:        '#0a0a0f',
-          panel:     '#111118',
-          accent:    '#ffd700',
-          'accent-dim': 'rgba(255,215,0,0.15)',
+          panel:     '#0f1512',
+          accent:    '#10b981',
+          'accent-dim': 'rgba(16,185,129,0.15)',
           border:    'rgba(255,255,255,0.08)',
-          'border-active': 'rgba(255,215,0,0.4)',
-          primary:   '#f0f0f5',
-          secondary: '#8888a0',
-          muted:     '#555568',
-          danger:    '#ff4d6d',
-          success:   '#00e676',
-        },
+          'border-active': 'rgba(16,185,129,0.4)',
+          primary:   '#ecfdf5',
+          secondary: '#6ee7b7',
+          muted:     '#4b6b5a',
+          danger:    '#ef4444',
+          success:   '#22c55e',
+        }
       },
       fontFamily: {
         inter: ['Inter', 'sans-serif'],

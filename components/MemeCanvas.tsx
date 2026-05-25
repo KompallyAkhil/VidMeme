@@ -14,6 +14,8 @@ interface MemeCanvasProps {
   onAddLayer: (x: number, y: number) => void;
   onEditLayer: (id: string) => void;
   onVideoLoaded: (url: string, file: File) => void;
+  borderHeight: number;
+  borderColor: string;
 }
 
 export interface MemeCanvasHandle {
@@ -21,17 +23,21 @@ export interface MemeCanvasHandle {
 }
 
 const MemeCanvas = forwardRef<MemeCanvasHandle, MemeCanvasProps>(
-  ({ videoUrl, videoName, layers, selectedId, onSelect, onMove, onAddLayer, onEditLayer, onVideoLoaded }, ref) => {
+  ({ videoUrl, videoName, layers, selectedId, onSelect, onMove, onAddLayer, onEditLayer, onVideoLoaded, borderHeight, borderColor }, ref) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const videoRef = useRef<HTMLVideoElement>(null);
     const animRef = useRef<number>(0);
     const playingRef = useRef(false);
     const layersRef = useRef(layers);
     const selectedIdRef = useRef(selectedId);
+    const borderHeightRef = useRef(borderHeight);
+    const borderColorRef = useRef(borderColor);
     const [isPlaying, setIsPlaying] = useState(false);
 
     useEffect(() => { layersRef.current = layers; }, [layers]);
     useEffect(() => { selectedIdRef.current = selectedId; }, [selectedId]);
+    useEffect(() => { borderHeightRef.current = borderHeight; }, [borderHeight]);
+    useEffect(() => { borderColorRef.current = borderColor; }, [borderColor]);
 
     // ── Render loop ──────────────────────────────────────────────────────────
     const render = useCallback(() => {
@@ -42,7 +48,29 @@ const MemeCanvas = forwardRef<MemeCanvasHandle, MemeCanvasProps>(
       if (!ctx) return;
 
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      
+      // Draw border bar
+      ctx.fillStyle = borderColorRef.current;
+      ctx.fillRect(0, 0, canvas.width, borderHeightRef.current);
+      
+      // Draw video below the border bar
+      ctx.drawImage(video, 0, borderHeightRef.current, canvas.width, canvas.height - borderHeightRef.current);
+      
+      // Draw watermark in bottom-left
+      ctx.save();
+      const ws = Math.max(12, Math.round(canvas.width * 0.022));
+      ctx.font = `bold ${ws}px Inter, sans-serif`;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'bottom';
+      const padX = canvas.width * 0.03;
+      const padY = canvas.height - (canvas.height * 0.03);
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.6)';
+      ctx.lineWidth = Math.max(2, Math.round(ws * 0.18));
+      ctx.strokeText('🎭 VideMeme', padX, padY);
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+      ctx.fillText('🎭 VideMeme', padX, padY);
+      ctx.restore();
+
       drawLayers(ctx, canvas.width, canvas.height, layersRef.current, selectedIdRef.current ?? undefined, true);
       animRef.current = requestAnimationFrame(render);
     }, []);
@@ -53,8 +81,31 @@ const MemeCanvas = forwardRef<MemeCanvasHandle, MemeCanvasProps>(
       if (!canvas || !video || video.readyState < 2 || playingRef.current) return;
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
+      
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      
+      // Draw border bar
+      ctx.fillStyle = borderColorRef.current;
+      ctx.fillRect(0, 0, canvas.width, borderHeightRef.current);
+      
+      // Draw video below the border bar
+      ctx.drawImage(video, 0, borderHeightRef.current, canvas.width, canvas.height - borderHeightRef.current);
+      
+      // Draw watermark in bottom-left
+      ctx.save();
+      const ws = Math.max(12, Math.round(canvas.width * 0.022));
+      ctx.font = `bold ${ws}px Inter, sans-serif`;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'bottom';
+      const padX = canvas.width * 0.03;
+      const padY = canvas.height - (canvas.height * 0.03);
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.6)';
+      ctx.lineWidth = Math.max(2, Math.round(ws * 0.18));
+      ctx.strokeText('🎭 VideMeme', padX, padY);
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+      ctx.fillText('🎭 VideMeme', padX, padY);
+      ctx.restore();
+
       drawLayers(ctx, canvas.width, canvas.height, layersRef.current, selectedIdRef.current ?? undefined, true);
     }, []);
 
@@ -88,6 +139,16 @@ const MemeCanvas = forwardRef<MemeCanvasHandle, MemeCanvasProps>(
       };
     }, [render, drawStatic]);
 
+    // Handle dynamic border resizing
+    useEffect(() => {
+      const canvas = canvasRef.current;
+      const video = videoRef.current;
+      if (!canvas || !video || video.readyState < 2) return;
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight + borderHeight;
+      drawStatic();
+    }, [borderHeight, borderColor, drawStatic]);
+
     // Load video
     useEffect(() => {
       const video = videoRef.current;
@@ -107,14 +168,32 @@ const MemeCanvas = forwardRef<MemeCanvasHandle, MemeCanvasProps>(
 
       const onMeta = () => {
         canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
+        canvas.height = video.videoHeight + borderHeightRef.current;
         video.currentTime = 0.1;
       };
       const onSeeked = () => {
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = borderColorRef.current;
+        ctx.fillRect(0, 0, canvas.width, borderHeightRef.current);
+        ctx.drawImage(video, 0, borderHeightRef.current, canvas.width, canvas.height - borderHeightRef.current);
+        
+        // Draw watermark in bottom-left
+        ctx.save();
+        const ws = Math.max(12, Math.round(canvas.width * 0.022));
+        ctx.font = `bold ${ws}px Inter, sans-serif`;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'bottom';
+        const padX = canvas.width * 0.03;
+        const padY = canvas.height - (canvas.height * 0.03);
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.6)';
+        ctx.lineWidth = Math.max(2, Math.round(ws * 0.18));
+        ctx.strokeText('🎭 VideMeme', padX, padY);
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+        ctx.fillText('🎭 VideMeme', padX, padY);
+        ctx.restore();
+
         drawLayers(ctx, canvas.width, canvas.height, layersRef.current, selectedIdRef.current ?? undefined, true);
       };
 

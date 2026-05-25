@@ -35,6 +35,8 @@ async function getFFmpeg(): Promise<FFmpeg> {
 async function exportVideoWithCanvas(
   videoFile: File,
   layers: TextLayer[],
+  borderHeight: number,
+  borderColor: string,
   onProgress?: (percent: number) => void,
 ): Promise<Blob> {
   const report = (n: number) => onProgress?.(Math.round(n));
@@ -42,6 +44,14 @@ async function exportVideoWithCanvas(
   return new Promise<Blob>((resolve, reject) => {
     // ── 1. Set up video element ──────────────────────────────────────────
     const video = document.createElement('video');
+    // Bypasses browser autoplay/decoding sandboxes by attaching invisibly to DOM
+    video.style.position = 'absolute';
+    video.style.width = '1px';
+    video.style.height = '1px';
+    video.style.opacity = '0';
+    video.style.pointerEvents = 'none';
+    document.body.appendChild(video);
+
     const objectUrl = URL.createObjectURL(videoFile);
     video.src = objectUrl;
     video.muted = true;      // no audible playback during export
@@ -50,13 +60,14 @@ async function exportVideoWithCanvas(
     video.preload = 'auto';  // buffer fully before playback starts
 
     video.onerror = () => {
+      video.remove();
       URL.revokeObjectURL(objectUrl);
       reject(new Error(`Video failed to load: ${video.error?.message ?? 'unknown'}`));
     };
 
     video.onloadedmetadata = () => {
       const vw = video.videoWidth;
-      const vh = video.videoHeight;
+      const vh = video.videoHeight + borderHeight;
       const duration = video.duration;
 
       // ── 2. Set up canvas ─────────────────────────────────────────────
@@ -67,12 +78,12 @@ async function exportVideoWithCanvas(
 
       // ── 3. Set up audio via Web Audio API ────────────────────────────
       let audioStream: MediaStream | null = null;
+      let audioCtx: AudioContext | null = null;
       try {
-        const audioCtx = new AudioContext();
+        audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
         const source = audioCtx.createMediaElementSource(video);
         const dest = audioCtx.createMediaStreamDestination();
         source.connect(dest);
-        // NOT connected to audioCtx.destination, so no audible playback
         audioStream = dest.stream;
       } catch {
         audioStream = null;
@@ -81,7 +92,25 @@ async function exportVideoWithCanvas(
       // ── 4. Frame drawing helper ──────────────────────────────────────
       const drawFrame = () => {
         ctx.clearRect(0, 0, vw, vh);
-        ctx.drawImage(video, 0, 0, vw, vh);
+        ctx.fillStyle = borderColor;
+        ctx.fillRect(0, 0, vw, borderHeight);
+        ctx.drawImage(video, 0, borderHeight, vw, vh - borderHeight);
+        
+        // Draw watermark in bottom-left
+        ctx.save();
+        const ws = Math.max(12, Math.round(vw * 0.022));
+        ctx.font = `bold ${ws}px Inter, sans-serif`;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'bottom';
+        const padX = vw * 0.03;
+        const padY = vh - (vh * 0.03);
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.6)';
+        ctx.lineWidth = Math.max(2, Math.round(ws * 0.18));
+        ctx.strokeText('🎭 VideMeme', padX, padY);
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+        ctx.fillText('🎭 VideMeme', padX, padY);
+        ctx.restore();
+
         drawLayers(ctx, vw, vh, layers, undefined, false);
       };
 
@@ -96,6 +125,9 @@ async function exportVideoWithCanvas(
       const combinedStream = new MediaStream(tracks);
 
       const mimeType =
+        MediaRecorder.isTypeSupported('video/mp4;codecs=avc1,mp4a') ? 'video/mp4;codecs=avc1,mp4a' :
+        MediaRecorder.isTypeSupported('video/mp4;codecs=avc1') ? 'video/mp4;codecs=avc1' :
+        MediaRecorder.isTypeSupported('video/mp4') ? 'video/mp4' :
         MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus') ? 'video/webm;codecs=vp9,opus' :
         MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus') ? 'video/webm;codecs=vp8,opus' :
         MediaRecorder.isTypeSupported('video/webm') ? 'video/webm' :
@@ -105,9 +137,10 @@ async function exportVideoWithCanvas(
       try {
         recorder = new MediaRecorder(combinedStream, {
           mimeType,
-          videoBitsPerSecond: 12_000_000, // 12 Mbps for high-quality smooth output
+          videoBitsPerSecond: 5_000_000, 
         });
       } catch (e) {
+        video.remove();
         reject(new Error(`MediaRecorder init failed: ${e}`));
         return;
       }
@@ -119,6 +152,7 @@ async function exportVideoWithCanvas(
       const cleanup = () => {
         cancelAnimationFrame(rafId);
         canvasStream.getTracks().forEach((t) => t.stop());
+        video.remove();
         URL.revokeObjectURL(objectUrl);
       };
 
@@ -174,7 +208,10 @@ async function exportVideoWithCanvas(
       video.currentTime = 0;
       video
         .play()
-        .then(() => {
+        .then(async () => {
+          if (audioCtx && audioCtx.state === 'suspended') {
+            await audioCtx.resume();
+          }
           if (!hasRVFC) startRafLoop();
         })
         .catch((err) => {
@@ -192,6 +229,8 @@ export async function exportInBackground(
   videoFile: File,
   layers: TextLayer[],
   format: 'mp4' | 'mp3',
+  borderHeight: number,
+  borderColor: string,
   onProgress?: (percent: number) => void,
 ): Promise<Blob> {
   const report = (n: number) => onProgress?.(Math.round(n));
@@ -229,7 +268,7 @@ export async function exportInBackground(
   }
 
   // ── MP4: real-time canvas capture via MediaRecorder ──────────────────────
-  const blob = await exportVideoWithCanvas(videoFile, layers, onProgress);
+  const blob = await exportVideoWithCanvas(videoFile, layers, borderHeight, borderColor, onProgress);
   report(100);
   return blob;
 }
