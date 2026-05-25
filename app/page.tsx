@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState, useCallback } from 'react';
+import { useRef, useState, useCallback, useEffect } from 'react';
 import MemeCanvas, { MemeCanvasHandle } from '@/components/MemeCanvas';
 import EditorPanel from '@/components/EditorPanel';
 import VideoUploader from '@/components/VideoUploader';
@@ -26,13 +26,23 @@ export default function Home() {
 
   const canvasRef = useRef<MemeCanvasHandle>(null);
 
+  // Refs for stable callbacks — avoids stale closures and unstable identities
+  const videoUrlRef = useRef<string | null>(videoUrl);
+  const borderHeightRef = useRef(borderHeight);
+  const borderColorRef = useRef(borderColor);
+  useEffect(() => { videoUrlRef.current = videoUrl; }, [videoUrl]);
+  useEffect(() => { borderHeightRef.current = borderHeight; }, [borderHeight]);
+  useEffect(() => { borderColorRef.current = borderColor; }, [borderColor]);
+
   // ── Video ─────────────────────────────────────────────────────────────────
+  // Stable callback — reads URL from ref so its identity never changes,
+  // preventing MemeCanvas from re-rendering just because videoUrl changed.
   const handleVideoLoaded = useCallback((url: string, file: File) => {
-    if (videoUrl) URL.revokeObjectURL(videoUrl);
+    if (videoUrlRef.current) URL.revokeObjectURL(videoUrlRef.current);
     setVideoUrl(url);
     setVideoName(file.name);
     setVideoFile(file);
-  }, [videoUrl]);
+  }, []); // intentionally empty — reads live value via ref
 
   const handleRemove = useCallback(() => {
     if (videoUrl) URL.revokeObjectURL(videoUrl);
@@ -76,12 +86,14 @@ export default function Home() {
     setExportError('');
 
     try {
+      // Read borderHeight/borderColor from refs to avoid stale closure values
+      // (user may have changed them after the callback was created)
       const blob = await exportInBackground(
         videoFile,
         layers,
         format,
-        borderHeight,
-        borderColor,
+        borderHeightRef.current,
+        borderColorRef.current,
         (p) => setExportProgress(p)
       );
       setExportProgress(100);
@@ -112,7 +124,7 @@ export default function Home() {
       setExportState('error');
       setTimeout(() => setExportState('idle'), 8000);
     }
-  }, [videoFile, layers]);
+  }, [videoFile, layers]); // borderHeight/borderColor are read via refs — no extra deps
 
   const handleCopyPng = useCallback(async () => {
     const canvas = canvasRef.current;

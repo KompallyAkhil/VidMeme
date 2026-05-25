@@ -22,10 +22,29 @@ export interface MemeCanvasHandle {
   getOverlayPng: () => Promise<Blob>;
 }
 
+// ── Watermark helper ────────────────────────────────────────────────────────
+function drawWatermark(ctx: CanvasRenderingContext2D, w: number, h: number) {
+  ctx.save();
+  const ws = Math.max(12, Math.round(w * 0.022));
+  ctx.font = `bold ${ws}px Inter, sans-serif`;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'bottom';
+  const padX = w * 0.03;
+  const padY = h - h * 0.03;
+  ctx.strokeStyle = 'rgba(0, 0, 0, 0.6)';
+  ctx.lineWidth = Math.max(2, Math.round(ws * 0.18));
+  ctx.strokeText('🎭 VidMeme', padX, padY);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+  ctx.fillText('🎭 VidMeme', padX, padY);
+  ctx.restore();
+}
+
 const MemeCanvas = forwardRef<MemeCanvasHandle, MemeCanvasProps>(
   ({ videoUrl, videoName, layers, selectedId, onSelect, onMove, onAddLayer, onEditLayer, onVideoLoaded, borderHeight, borderColor }, ref) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const videoRef = useRef<HTMLVideoElement>(null);
+    // Cache the 2D context so getContext() isn't called on every frame
+    const ctxRef = useRef<CanvasRenderingContext2D | null>(null);
     const animRef = useRef<number>(0);
     const playingRef = useRef(false);
     const layersRef = useRef(layers);
@@ -39,75 +58,62 @@ const MemeCanvas = forwardRef<MemeCanvasHandle, MemeCanvasProps>(
     useEffect(() => { borderHeightRef.current = borderHeight; }, [borderHeight]);
     useEffect(() => { borderColorRef.current = borderColor; }, [borderColor]);
 
+    // Lazily retrieve (and cache) the 2D context
+    const getCtx = useCallback((): CanvasRenderingContext2D | null => {
+      if (ctxRef.current) return ctxRef.current;
+      const canvas = canvasRef.current;
+      if (!canvas) return null;
+      ctxRef.current = canvas.getContext('2d');
+      return ctxRef.current;
+    }, []);
+
+    // Invalidate cached context whenever the canvas element changes size,
+    // because resizing a canvas resets its context state.
+    const resetCtx = useCallback(() => {
+      ctxRef.current = null;
+    }, []);
+
     // ── Render loop ──────────────────────────────────────────────────────────
     const render = useCallback(() => {
       const canvas = canvasRef.current;
       const video = videoRef.current;
       if (!canvas || !video) return;
-      const ctx = canvas.getContext('2d');
+      const ctx = getCtx();
       if (!ctx) return;
 
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      
+
       // Draw border bar
       ctx.fillStyle = borderColorRef.current;
       ctx.fillRect(0, 0, canvas.width, borderHeightRef.current);
-      
+
       // Draw video below the border bar
       ctx.drawImage(video, 0, borderHeightRef.current, canvas.width, canvas.height - borderHeightRef.current);
-      
-      // Draw watermark in bottom-left
-      ctx.save();
-      const ws = Math.max(12, Math.round(canvas.width * 0.022));
-      ctx.font = `bold ${ws}px Inter, sans-serif`;
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'bottom';
-      const padX = canvas.width * 0.03;
-      const padY = canvas.height - (canvas.height * 0.03);
-      ctx.strokeStyle = 'rgba(0, 0, 0, 0.6)';
-      ctx.lineWidth = Math.max(2, Math.round(ws * 0.18));
-      ctx.strokeText('🎭 VideMeme', padX, padY);
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
-      ctx.fillText('🎭 VideMeme', padX, padY);
-      ctx.restore();
 
+      drawWatermark(ctx, canvas.width, canvas.height);
       drawLayers(ctx, canvas.width, canvas.height, layersRef.current, selectedIdRef.current ?? undefined, true);
       animRef.current = requestAnimationFrame(render);
-    }, []);
+    }, [getCtx]);
 
     const drawStatic = useCallback(() => {
       const canvas = canvasRef.current;
       const video = videoRef.current;
       if (!canvas || !video || video.readyState < 2 || playingRef.current) return;
-      const ctx = canvas.getContext('2d');
+      const ctx = getCtx();
       if (!ctx) return;
-      
+
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      
+
       // Draw border bar
       ctx.fillStyle = borderColorRef.current;
       ctx.fillRect(0, 0, canvas.width, borderHeightRef.current);
-      
+
       // Draw video below the border bar
       ctx.drawImage(video, 0, borderHeightRef.current, canvas.width, canvas.height - borderHeightRef.current);
-      
-      // Draw watermark in bottom-left
-      ctx.save();
-      const ws = Math.max(12, Math.round(canvas.width * 0.022));
-      ctx.font = `bold ${ws}px Inter, sans-serif`;
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'bottom';
-      const padX = canvas.width * 0.03;
-      const padY = canvas.height - (canvas.height * 0.03);
-      ctx.strokeStyle = 'rgba(0, 0, 0, 0.6)';
-      ctx.lineWidth = Math.max(2, Math.round(ws * 0.18));
-      ctx.strokeText('🎭 VideMeme', padX, padY);
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
-      ctx.fillText('🎭 VideMeme', padX, padY);
-      ctx.restore();
 
+      drawWatermark(ctx, canvas.width, canvas.height);
       drawLayers(ctx, canvas.width, canvas.height, layersRef.current, selectedIdRef.current ?? undefined, true);
-    }, []);
+    }, [getCtx]);
 
     // Redraw when layers or selection change while paused
     useEffect(() => { drawStatic(); }, [layers, selectedId, drawStatic]);
@@ -139,15 +145,22 @@ const MemeCanvas = forwardRef<MemeCanvasHandle, MemeCanvasProps>(
       };
     }, [render, drawStatic]);
 
-    // Handle dynamic border resizing
+    // Handle borderHeight change → resize canvas AND redraw
     useEffect(() => {
       const canvas = canvasRef.current;
       const video = videoRef.current;
       if (!canvas || !video || video.readyState < 2) return;
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight + borderHeight;
+      // Canvas resize invalidates context state — reset cached ctx
+      resetCtx();
       drawStatic();
-    }, [borderHeight, borderColor, drawStatic]);
+    }, [borderHeight, drawStatic, resetCtx]);
+
+    // Handle borderColor change → redraw only (no resize needed)
+    useEffect(() => {
+      drawStatic();
+    }, [borderColor, drawStatic]);
 
     // Load video
     useEffect(() => {
@@ -159,7 +172,7 @@ const MemeCanvas = forwardRef<MemeCanvasHandle, MemeCanvasProps>(
       setIsPlaying(false);
 
       if (!videoUrl) {
-        canvas.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
+        getCtx()?.clearRect(0, 0, canvas.width, canvas.height);
         return;
       }
 
@@ -169,31 +182,18 @@ const MemeCanvas = forwardRef<MemeCanvasHandle, MemeCanvasProps>(
       const onMeta = () => {
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight + borderHeightRef.current;
+        // Canvas resize invalidates context state
+        resetCtx();
         video.currentTime = 0.1;
       };
       const onSeeked = () => {
-        const ctx = canvas.getContext('2d');
+        const ctx = getCtx();
         if (!ctx) return;
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.fillStyle = borderColorRef.current;
         ctx.fillRect(0, 0, canvas.width, borderHeightRef.current);
         ctx.drawImage(video, 0, borderHeightRef.current, canvas.width, canvas.height - borderHeightRef.current);
-        
-        // Draw watermark in bottom-left
-        ctx.save();
-        const ws = Math.max(12, Math.round(canvas.width * 0.022));
-        ctx.font = `bold ${ws}px Inter, sans-serif`;
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'bottom';
-        const padX = canvas.width * 0.03;
-        const padY = canvas.height - (canvas.height * 0.03);
-        ctx.strokeStyle = 'rgba(0, 0, 0, 0.6)';
-        ctx.lineWidth = Math.max(2, Math.round(ws * 0.18));
-        ctx.strokeText('🎭 VideMeme', padX, padY);
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
-        ctx.fillText('🎭 VideMeme', padX, padY);
-        ctx.restore();
-
+        drawWatermark(ctx, canvas.width, canvas.height);
         drawLayers(ctx, canvas.width, canvas.height, layersRef.current, selectedIdRef.current ?? undefined, true);
       };
 
@@ -211,7 +211,6 @@ const MemeCanvas = forwardRef<MemeCanvasHandle, MemeCanvasProps>(
       getOverlayPng: async () => {
         const canvas = canvasRef.current;
         if (!canvas) throw new Error('Canvas not ready');
-        // Draw clean (no selection handles) onto a temp canvas
         const tmp = document.createElement('canvas');
         tmp.width = canvas.width;
         tmp.height = canvas.height;
@@ -234,8 +233,11 @@ const MemeCanvas = forwardRef<MemeCanvasHandle, MemeCanvasProps>(
       const cx = (ex - rect.left) * scaleX;
       const cy = (ey - rect.top) * scaleY;
 
+      // Reuse the cached context for measuring text (avoids re-creating)
+      const ctx = getCtx();
+      if (!ctx) return null;
+
       // Test layers in reverse (top-most first)
-      const ctx = canvas.getContext('2d')!;
       for (let i = layersRef.current.length - 1; i >= 0; i--) {
         const l = layersRef.current[i];
         ctx.font = `${l.bold ? 'bold ' : ''}${l.fontSize}px "${l.fontFamily}", Arial Black, sans-serif`;
@@ -251,11 +253,13 @@ const MemeCanvas = forwardRef<MemeCanvasHandle, MemeCanvasProps>(
         }
       }
       return null;
-    }, []);
+    }, [getCtx]);
 
     const dragRef = useRef<{ id: string; startMouseX: number; startMouseY: number; startLayerX: number; startLayerY: number } | null>(null);
     const clickTargetRef = useRef<string | null>(null);
     const lastClickRef = useRef<{ id: string; time: number } | null>(null);
+    // RAF guard for pointer-move throttle — prevents redundant move calls mid-frame
+    const movePendingRef = useRef(false);
 
     const handlePointerDown = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
       const hit = hitTest(e.clientX, e.clientY);
@@ -266,8 +270,6 @@ const MemeCanvas = forwardRef<MemeCanvasHandle, MemeCanvasProps>(
         const layer = layersRef.current.find(l => l.id === hit)!;
         const canvas = canvasRef.current!;
         const rect = canvas.getBoundingClientRect();
-        const scaleX = canvas.width / rect.width;
-        const scaleY = canvas.height / rect.height;
         dragRef.current = {
           id: hit,
           startMouseX: e.clientX,
@@ -284,14 +286,25 @@ const MemeCanvas = forwardRef<MemeCanvasHandle, MemeCanvasProps>(
     const handlePointerMove = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
       const drag = dragRef.current;
       if (!drag) return;
-      const canvas = canvasRef.current!;
-      const rect = canvas.getBoundingClientRect();
-      const scaleX = canvas.width / rect.width;
-      const scaleY = canvas.height / rect.height;
-      const dx = (e.clientX - drag.startMouseX) * scaleX / canvas.width;
-      const dy = (e.clientY - drag.startMouseY) * scaleY / canvas.height;
-      onMove(drag.id, Math.max(0, Math.min(1, drag.startLayerX + dx)), Math.max(0, Math.min(1, drag.startLayerY + dy)));
-      if (!playingRef.current) drawStatic();
+      // RAF throttle: skip if a move update is already queued this frame
+      if (movePendingRef.current) return;
+      movePendingRef.current = true;
+
+      const clientX = e.clientX;
+      const clientY = e.clientY;
+
+      requestAnimationFrame(() => {
+        movePendingRef.current = false;
+        const canvas = canvasRef.current;
+        if (!canvas || !dragRef.current) return;
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        const dx = (clientX - drag.startMouseX) * scaleX / canvas.width;
+        const dy = (clientY - drag.startMouseY) * scaleY / canvas.height;
+        onMove(drag.id, Math.max(0, Math.min(1, drag.startLayerX + dx)), Math.max(0, Math.min(1, drag.startLayerY + dy)));
+        if (!playingRef.current) drawStatic();
+      });
     }, [onMove, drawStatic]);
 
     const handlePointerUp = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -386,7 +399,7 @@ const MemeCanvas = forwardRef<MemeCanvasHandle, MemeCanvasProps>(
 
         {/* Keyboard shortcuts bar */}
         {videoUrl && (
-          <div className="absolute bottom-3 left-0 right-0 flex items-center justify-center gap-5 text-[10px] text-brand-muted pointer-events-none flex-wrap px-4">
+          <div className="absolute bottom-3 left-0 right-0 flex items-center justify-center gap-5 text-[10px] text-brand-muted pointer-events-none flex-wrap px-6">
             <span><kbd className="bg-white/[0.06] border border-white/[0.1] rounded px-1.5 py-0.5 mr-1">Double-click</kbd>Add text</span>
             <span><kbd className="bg-white/[0.06] border border-white/[0.1] rounded px-1.5 py-0.5 mr-1">Drag</kbd>Move layer</span>
             <span><kbd className="bg-white/[0.06] border border-white/[0.1] rounded px-1.5 py-0.5 mr-1">Click canvas</kbd>Play / Pause</span>

@@ -106,9 +106,9 @@ async function exportVideoWithCanvas(
         const padY = vh - (vh * 0.03);
         ctx.strokeStyle = 'rgba(0, 0, 0, 0.6)';
         ctx.lineWidth = Math.max(2, Math.round(ws * 0.18));
-        ctx.strokeText('🎭 VideMeme', padX, padY);
+        ctx.strokeText('🎭 VidMeme', padX, padY);
         ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
-        ctx.fillText('🎭 VideMeme', padX, padY);
+        ctx.fillText('🎭 VidMeme', padX, padY);
         ctx.restore();
 
         drawLayers(ctx, vw, vh, layers, undefined, false);
@@ -116,7 +116,10 @@ async function exportVideoWithCanvas(
 
       // ── 5. Set up MediaRecorder ──────────────────────────────────────
       // 60 fps hint: RVFC only pushes real decoded frames so no duplicates
-      const canvasStream = canvas.captureStream(60);
+      // Use 0 so the browser captures at the video's actual decoded framerate.
+      // Passing 60 here would cause duplicate frames when the source is 24/30fps,
+      // inflating file size without any quality gain.
+      const canvasStream = canvas.captureStream(0);
 
       const tracks = [
         ...canvasStream.getVideoTracks(),
@@ -149,8 +152,14 @@ async function exportVideoWithCanvas(
       recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
 
       let rafId = 0;
+      let rvfcHandle = 0; // stores handle for cancelVideoFrameCallback
       const cleanup = () => {
         cancelAnimationFrame(rafId);
+        // Cancel RVFC chain if the browser supports it (Chrome/Edge)
+        if (rvfcHandle && 'cancelVideoFrameCallback' in video) {
+          (video as any).cancelVideoFrameCallback(rvfcHandle);
+          rvfcHandle = 0;
+        }
         canvasStream.getTracks().forEach((t) => t.stop());
         video.remove();
         URL.revokeObjectURL(objectUrl);
@@ -176,10 +185,12 @@ async function exportVideoWithCanvas(
         const onVideoFrame = () => {
           drawFrame();
           if (!video.ended && !video.paused) {
-            (video as any).requestVideoFrameCallback(onVideoFrame);
+            rvfcHandle = (video as any).requestVideoFrameCallback(onVideoFrame);
+          } else {
+            rvfcHandle = 0;
           }
         };
-        (video as any).requestVideoFrameCallback(onVideoFrame);
+        rvfcHandle = (video as any).requestVideoFrameCallback(onVideoFrame);
       }
 
       // RAF fallback for browsers without RVFC (e.g. Firefox)

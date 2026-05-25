@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { TextLayer, FONTS, TEXT_COLORS, STROKE_COLORS } from '@/lib/textLayers';
 
 interface EditorPanelProps {
@@ -33,7 +33,10 @@ export default function EditorPanel({
   const [activeTab, setActiveTab] = useState<'text' | 'style'>('text');
   const [editingId, setEditingId] = useState<string | null>(null);
 
-  const selected = layers.find(l => l.id === selectedId) ?? null;
+  const selected = useMemo(
+    () => layers.find(l => l.id === selectedId) ?? null,
+    [layers, selectedId]
+  );
 
   return (
     <aside className="w-[400px] min-w-[400px] border-l border-white/[0.08] bg-[#0d0d12] flex flex-col overflow-hidden h-full">
@@ -302,7 +305,7 @@ export default function EditorPanel({
         {exportState === 'exporting' && (
           <div className="flex flex-col gap-1.5">
             <div className="flex justify-between text-[10px] uppercase font-bold tracking-widest text-brand-danger">
-              <span>Encoding</span>
+              <span>Downloading</span>
               <span>{exportProgress}%</span>
             </div>
             <div className="w-full h-1.5 bg-white/[0.04] rounded-full overflow-hidden border border-white/[0.08]">
@@ -332,7 +335,7 @@ export default function EditorPanel({
               : 'bg-white/[0.02] text-brand-muted border-white/[0.04] cursor-not-allowed'
           }`}
         >
-          {exportState === 'exporting' ? '⚡ Encoding & Downloading Video...' : '🎬 Download Video (MP4)'}
+          {exportState === 'exporting' ? '⚡Downloading Video...' : '🎬 Download Video (MP4)'}
         </button>
       </div>
     </aside>

@@ -2,11 +2,11 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "VideMeme — Video Meme Creator",
+  title: "VidMeme — Video Meme Creator",
   description: "Create video memes instantly. Upload a video, add meme-style text overlays, and export in seconds. No signup required.",
   keywords: ["video meme", "meme creator", "meme generator", "video editor", "meme maker"],
   openGraph: {
-    title: "VideMeme — Video Meme Creator",
+    title: "VidMeme — Video Meme Creator",
     description: "Create hilarious video memes in seconds",
     type: "website",
   },
