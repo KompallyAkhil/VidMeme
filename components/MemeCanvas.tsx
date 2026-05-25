@@ -1,244 +1,326 @@
 'use client';
 
-import { useEffect, useRef, useCallback, forwardRef, useImperativeHandle } from 'react';
-import { MemeTextConfig, drawMeme, BAR_HEIGHT } from '@/lib/memeRenderer';
+import { useEffect, useRef, useCallback, forwardRef, useImperativeHandle, useState } from 'react';
+import { TextLayer, drawLayers } from '@/lib/textLayers';
 
 interface MemeCanvasProps {
   videoUrl: string | null;
-  config: MemeTextConfig;
+  videoName: string;
+  layers: TextLayer[];
+  selectedId: string | null;
+  onSelect: (id: string | null) => void;
+  onMove: (id: string, x: number, y: number) => void;
+  onAddLayer: (x: number, y: number) => void;
+  onEditLayer: (id: string) => void;
 }
 
 export interface MemeCanvasHandle {
-  startRecording: () => Promise<Blob>;
-  getCanvas: () => HTMLCanvasElement | null;
+  getOverlayPng: () => Promise<Blob>;
 }
 
-const MemeCanvas = forwardRef<MemeCanvasHandle, MemeCanvasProps>(({ videoUrl, config }, ref) => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const animRef = useRef<number>(0);
-  const playingRef = useRef(false);
+const MemeCanvas = forwardRef<MemeCanvasHandle, MemeCanvasProps>(
+  ({ videoUrl, videoName, layers, selectedId, onSelect, onMove, onAddLayer, onEditLayer }, ref) => {
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+    const videoRef = useRef<HTMLVideoElement>(null);
+    const animRef = useRef<number>(0);
+    const playingRef = useRef(false);
+    const layersRef = useRef(layers);
+    const selectedIdRef = useRef(selectedId);
+    const [isPlaying, setIsPlaying] = useState(false);
 
-  // Keep config in a ref so the render loop never needs to be recreated
-  const configRef = useRef(config);
-  useEffect(() => { configRef.current = config; }, [config]);
+    useEffect(() => { layersRef.current = layers; }, [layers]);
+    useEffect(() => { selectedIdRef.current = selectedId; }, [selectedId]);
 
-  // ── Stable render loop ────────────────────────────────────────────────────
-  const render = useCallback(() => {
-    const canvas = canvasRef.current;
-    const video = videoRef.current;
-    if (!canvas || !video) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    // Fill background with solid black
-    ctx.fillStyle = '#000000';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    let videoY = 0;
-    if (configRef.current.style === 'top-bar' || configRef.current.style === 'both-bars') {
-      videoY = BAR_HEIGHT;
-    }
-    ctx.drawImage(video, 0, videoY, video.videoWidth, video.videoHeight);
-    drawMeme(ctx, canvas.width, canvas.height, configRef.current);
-    animRef.current = requestAnimationFrame(render);
-  }, []);
-
-  // Draw a single static frame (when paused or config changes)
-  const drawStatic = useCallback(() => {
-    const canvas = canvasRef.current;
-    const video = videoRef.current;
-    if (!canvas || !video || video.readyState < 2 || playingRef.current) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    // Fill background with solid black
-    ctx.fillStyle = '#000000';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    let videoY = 0;
-    if (configRef.current.style === 'top-bar' || configRef.current.style === 'both-bars') {
-      videoY = BAR_HEIGHT;
-    }
-    ctx.drawImage(video, 0, videoY, video.videoWidth, video.videoHeight);
-    drawMeme(ctx, canvas.width, canvas.height, configRef.current);
-  }, []);
-
-  // Redraw whenever config changes (while paused)
-  useEffect(() => { drawStatic(); }, [config, drawStatic]);
-
-  // Update canvas size whenever config style changes after video is loaded
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    const video = videoRef.current;
-    if (!canvas || !video || video.readyState < 1) return;
-
-    const nativeWidth = video.videoWidth;
-    const nativeHeight = video.videoHeight;
-
-    let extraHeight = 0;
-    if (config.style === 'top-bar' || config.style === 'both-bars') {
-      extraHeight += BAR_HEIGHT;
-    }
-    if (config.style === 'bottom-bar' || config.style === 'both-bars') {
-      extraHeight += BAR_HEIGHT;
-    }
-
-    const targetHeight = nativeHeight + extraHeight;
-
-    if (canvas.width !== nativeWidth || canvas.height !== targetHeight) {
-      canvas.width = nativeWidth;
-      canvas.height = targetHeight;
-      drawStatic();
-    }
-  }, [config.style, drawStatic, videoUrl]);
-
-  // Start/stop render loop with video play state
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-    const play = () => {
-      playingRef.current = true;
-      cancelAnimationFrame(animRef.current);
-      animRef.current = requestAnimationFrame(render);
-    };
-    const stop = () => {
-      playingRef.current = false;
-      cancelAnimationFrame(animRef.current);
-      drawStatic();
-    };
-    video.addEventListener('play', play);
-    video.addEventListener('pause', stop);
-    video.addEventListener('ended', stop);
-    return () => {
-      video.removeEventListener('play', play);
-      video.removeEventListener('pause', stop);
-      video.removeEventListener('ended', stop);
-      cancelAnimationFrame(animRef.current);
-    };
-  }, [render, drawStatic]);
-
-  // Load video when URL changes
-  useEffect(() => {
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
-    if (!video || !canvas) return;
-    cancelAnimationFrame(animRef.current);
-    playingRef.current = false;
-
-    if (!videoUrl) {
-      canvas.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
-      return;
-    }
-
-    video.src = videoUrl;
-    video.load();
-
-    const onMeta = () => {
-      const nativeWidth = video.videoWidth;
-      const nativeHeight = video.videoHeight;
-
-      let extraHeight = 0;
-      if (configRef.current.style === 'top-bar' || configRef.current.style === 'both-bars') {
-        extraHeight += BAR_HEIGHT;
-      }
-      if (configRef.current.style === 'bottom-bar' || configRef.current.style === 'both-bars') {
-        extraHeight += BAR_HEIGHT;
-      }
-
-      canvas.width = nativeWidth;
-      canvas.height = nativeHeight + extraHeight;
-      video.currentTime = 0.1;
-    };
-    const onSeeked = () => {
+    // ── Render loop ──────────────────────────────────────────────────────────
+    const render = useCallback(() => {
+      const canvas = canvasRef.current;
+      const video = videoRef.current;
+      if (!canvas || !video) return;
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
-      ctx.fillStyle = '#000000';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      drawLayers(ctx, canvas.width, canvas.height, layersRef.current, selectedIdRef.current ?? undefined, true);
+      animRef.current = requestAnimationFrame(render);
+    }, []);
 
-      let videoY = 0;
-      if (configRef.current.style === 'top-bar' || configRef.current.style === 'both-bars') {
-        videoY = BAR_HEIGHT;
-      }
-      ctx.drawImage(video, 0, videoY, video.videoWidth, video.videoHeight);
-      drawMeme(ctx, canvas.width, canvas.height, configRef.current);
-    };
-
-    video.addEventListener('loadedmetadata', onMeta);
-    video.addEventListener('seeked', onSeeked);
-    return () => {
-      video.removeEventListener('loadedmetadata', onMeta);
-      video.removeEventListener('seeked', onSeeked);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [videoUrl]);
-
-  // Click canvas to play/pause
-  const handleClick = useCallback(() => {
-    const video = videoRef.current;
-    if (!video || !videoUrl) return;
-    video.paused ? video.play() : video.pause();
-  }, [videoUrl]);
-
-  // Expose recording API to parent
-  useImperativeHandle(ref, () => ({
-    getCanvas: () => canvasRef.current,
-    startRecording: (): Promise<Blob> => new Promise((resolve, reject) => {
+    const drawStatic = useCallback(() => {
       const canvas = canvasRef.current;
       const video = videoRef.current;
-      if (!canvas || !video) { reject(new Error('Not ready')); return; }
+      if (!canvas || !video || video.readyState < 2 || playingRef.current) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      drawLayers(ctx, canvas.width, canvas.height, layersRef.current, selectedIdRef.current ?? undefined, true);
+    }, []);
 
-      const stream = canvas.captureStream(30);
-      const chunks: BlobPart[] = [];
-      const mime = MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')
-        ? 'video/webm;codecs=vp9,opus' : 'video/webm';
+    // Redraw when layers or selection change while paused
+    useEffect(() => { drawStatic(); }, [layers, selectedId, drawStatic]);
 
-      const recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 5_000_000 });
-      recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
-      recorder.onstop = () => resolve(new Blob(chunks, { type: mime }));
-      recorder.onerror = (e) => reject(e);
+    // Play / pause events
+    useEffect(() => {
+      const video = videoRef.current;
+      if (!video) return;
+      const play = () => {
+        playingRef.current = true;
+        setIsPlaying(true);
+        cancelAnimationFrame(animRef.current);
+        animRef.current = requestAnimationFrame(render);
+      };
+      const stop = () => {
+        playingRef.current = false;
+        setIsPlaying(false);
+        cancelAnimationFrame(animRef.current);
+        drawStatic();
+      };
+      video.addEventListener('play', play);
+      video.addEventListener('pause', stop);
+      video.addEventListener('ended', stop);
+      return () => {
+        video.removeEventListener('play', play);
+        video.removeEventListener('pause', stop);
+        video.removeEventListener('ended', stop);
+        cancelAnimationFrame(animRef.current);
+      };
+    }, [render, drawStatic]);
 
-      recorder.start(100);
-      video.currentTime = 0;
-      video.play().catch(reject);
-      video.onended = () => { recorder.stop(); stream.getTracks().forEach(t => t.stop()); };
-    }),
-  }));
+    // Load video
+    useEffect(() => {
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      if (!video || !canvas) return;
+      cancelAnimationFrame(animRef.current);
+      playingRef.current = false;
+      setIsPlaying(false);
 
-  return (
-    <div
-      className={`relative flex items-center justify-center rounded-2xl overflow-hidden border transition-all duration-300 ${
-        videoUrl
-          ? 'bg-[#030305] border-white/[0.08] shadow-float'
-          : 'bg-brand-panel/40 border-white/[0.04] border-dashed hover:border-white/[0.1]'
-      }`}
-      style={{ cursor: videoUrl ? 'pointer' : 'default' }}
-    >
-      <video ref={videoRef} className="hidden" playsInline />
-      <canvas
-        ref={canvasRef}
-        onClick={handleClick}
-        className="block select-none transition-all duration-300 max-w-full"
-        style={{
-          display: videoUrl ? 'block' : 'none',
-          maxHeight: 'calc(100vh - 160px)',
-        }}
-      />
-      {!videoUrl && (
-        <div className="flex flex-col items-center justify-center text-center px-8 py-20">
-          <div className="w-16 h-16 bg-white/[0.02] border border-white/[0.06] rounded-2xl flex items-center justify-center text-3xl mb-4 shadow-[0_4px_20px_rgba(0,0,0,0.4)]">
-            🎬
+      if (!videoUrl) {
+        canvas.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
+        return;
+      }
+
+      video.src = videoUrl;
+      video.load();
+
+      const onMeta = () => {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        video.currentTime = 0.1;
+      };
+      const onSeeked = () => {
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        drawLayers(ctx, canvas.width, canvas.height, layersRef.current, selectedIdRef.current ?? undefined, true);
+      };
+
+      video.addEventListener('loadedmetadata', onMeta);
+      video.addEventListener('seeked', onSeeked);
+      return () => {
+        video.removeEventListener('loadedmetadata', onMeta);
+        video.removeEventListener('seeked', onSeeked);
+      };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [videoUrl]);
+
+    // ── Expose API ───────────────────────────────────────────────────────────
+    useImperativeHandle(ref, () => ({
+      getOverlayPng: async () => {
+        const canvas = canvasRef.current;
+        if (!canvas) throw new Error('Canvas not ready');
+        // Draw clean (no selection handles) onto a temp canvas
+        const tmp = document.createElement('canvas');
+        tmp.width = canvas.width;
+        tmp.height = canvas.height;
+        const ctx = tmp.getContext('2d')!;
+        ctx.clearRect(0, 0, tmp.width, tmp.height);
+        drawLayers(ctx, tmp.width, tmp.height, layersRef.current, undefined, false);
+        return new Promise<Blob>((res, rej) =>
+          tmp.toBlob((b) => (b ? res(b) : rej(new Error('toBlob failed'))), 'image/png')
+        );
+      },
+    }));
+
+    // ── Pointer interaction ──────────────────────────────────────────────────
+    const hitTest = useCallback((ex: number, ey: number): string | null => {
+      const canvas = canvasRef.current;
+      if (!canvas) return null;
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+      const cx = (ex - rect.left) * scaleX;
+      const cy = (ey - rect.top) * scaleY;
+
+      // Test layers in reverse (top-most first)
+      const ctx = canvas.getContext('2d')!;
+      for (let i = layersRef.current.length - 1; i >= 0; i--) {
+        const l = layersRef.current[i];
+        ctx.font = `${l.bold ? 'bold ' : ''}${l.fontSize}px "${l.fontFamily}", Arial Black, sans-serif`;
+        const tw = ctx.measureText(l.text).width;
+        const th = l.fontSize;
+        const px = l.x * canvas.width;
+        const py = l.y * canvas.height;
+        const ox = l.align === 'center' ? -tw / 2 : l.align === 'right' ? -tw : 0;
+        const pad = 12;
+        if (cx >= px + ox - pad && cx <= px + ox + tw + pad &&
+            cy >= py - th / 2 - pad && cy <= py + th / 2 + pad) {
+          return l.id;
+        }
+      }
+      return null;
+    }, []);
+
+    const dragRef = useRef<{ id: string; startMouseX: number; startMouseY: number; startLayerX: number; startLayerY: number } | null>(null);
+    const clickTargetRef = useRef<string | null>(null);
+    const lastClickRef = useRef<{ id: string; time: number } | null>(null);
+
+    const handlePointerDown = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+      const hit = hitTest(e.clientX, e.clientY);
+      clickTargetRef.current = hit;
+
+      if (hit) {
+        onSelect(hit);
+        const layer = layersRef.current.find(l => l.id === hit)!;
+        const canvas = canvasRef.current!;
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        dragRef.current = {
+          id: hit,
+          startMouseX: e.clientX,
+          startMouseY: e.clientY,
+          startLayerX: layer.x,
+          startLayerY: layer.y,
+        };
+        (e.target as HTMLCanvasElement).setPointerCapture(e.pointerId);
+      } else {
+        onSelect(null);
+      }
+    }, [hitTest, onSelect]);
+
+    const handlePointerMove = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+      const drag = dragRef.current;
+      if (!drag) return;
+      const canvas = canvasRef.current!;
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+      const dx = (e.clientX - drag.startMouseX) * scaleX / canvas.width;
+      const dy = (e.clientY - drag.startMouseY) * scaleY / canvas.height;
+      onMove(drag.id, Math.max(0, Math.min(1, drag.startLayerX + dx)), Math.max(0, Math.min(1, drag.startLayerY + dy)));
+      if (!playingRef.current) drawStatic();
+    }, [onMove, drawStatic]);
+
+    const handlePointerUp = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+      const wasDragging = dragRef.current &&
+        (Math.abs(e.clientX - dragRef.current.startMouseX) > 4 ||
+         Math.abs(e.clientY - dragRef.current.startMouseY) > 4);
+      dragRef.current = null;
+
+      if (!wasDragging) {
+        const hit = clickTargetRef.current;
+        if (hit) {
+          // Double-click = edit
+          const now = Date.now();
+          const last = lastClickRef.current;
+          if (last && last.id === hit && now - last.time < 400) {
+            onEditLayer(hit);
+            lastClickRef.current = null;
+          } else {
+            lastClickRef.current = { id: hit, time: now };
+          }
+        } else {
+          // Click empty area while video loaded = play/pause toggle
+          const video = videoRef.current;
+          if (video && videoUrl) video.paused ? video.play() : video.pause();
+        }
+      }
+    }, [onEditLayer, videoUrl]);
+
+    const handleDoubleClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+      if (!videoUrl) return;
+      const hit = hitTest(e.clientX, e.clientY);
+      if (hit) {
+        onEditLayer(hit);
+      } else {
+        const canvas = canvasRef.current!;
+        const rect = canvas.getBoundingClientRect();
+        const x = (e.clientX - rect.left) / rect.width;
+        const y = (e.clientY - rect.top) / rect.height;
+        onAddLayer(x, y);
+      }
+    }, [videoUrl, hitTest, onEditLayer, onAddLayer]);
+
+    return (
+      <div className="relative w-full h-full flex flex-col items-center justify-center">
+        {/* Video name breadcrumb */}
+        {videoName && (
+          <div className="absolute top-3 left-4 flex items-center gap-2 text-[12px] text-brand-secondary z-10 pointer-events-none">
+            <span className="text-brand-muted">▶</span>
+            <span className="font-medium text-brand-primary truncate max-w-[300px]">{videoName}</span>
           </div>
-          <div className="text-sm font-semibold text-brand-primary mb-1.5 font-inter">No video loaded</div>
-          <div className="text-xs text-brand-secondary max-w-[200px] leading-relaxed font-inter">
-            Upload an MP4 or WebM video to start crafting your meme
-          </div>
+        )}
+
+        <div
+          className={`relative rounded-2xl overflow-hidden border transition-all duration-300 shadow-float ${
+            videoUrl
+              ? 'border-white/[0.1] bg-black'
+              : 'border-white/[0.04] border-dashed bg-brand-panel/40'
+          }`}
+          style={{ maxWidth: '100%', maxHeight: 'calc(100vh - 160px)' }}
+        >
+          <video ref={videoRef} className="hidden" playsInline />
+          <canvas
+            ref={canvasRef}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onDoubleClick={handleDoubleClick}
+            className="block select-none"
+            style={{
+              display: videoUrl ? 'block' : 'none',
+              maxWidth: '100%',
+              maxHeight: 'calc(100vh - 160px)',
+              cursor: videoUrl ? 'crosshair' : 'default',
+            }}
+          />
+
+          {/* Play/Pause overlay icon */}
+          {videoUrl && !isPlaying && (
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div className="w-14 h-14 rounded-full bg-black/40 border border-white/20 flex items-center justify-center text-2xl opacity-0 hover:opacity-100 transition-opacity">
+                ▶
+              </div>
+            </div>
+          )}
+
+          {!videoUrl && (
+            <div className="flex flex-col items-center justify-center text-center px-8 py-24">
+              <div className="w-16 h-16 bg-white/[0.02] border border-white/[0.06] rounded-2xl flex items-center justify-center text-3xl mb-4">
+                🎬
+              </div>
+              <div className="text-sm font-semibold text-brand-primary mb-1.5">No video loaded</div>
+              <div className="text-xs text-brand-muted max-w-[200px] leading-relaxed">
+                Upload a video, then double-click the canvas to add text
+              </div>
+            </div>
+          )}
         </div>
-      )}
-    </div>
-  );
-});
+
+        {/* Keyboard shortcuts bar */}
+        {videoUrl && (
+          <div className="absolute bottom-3 left-0 right-0 flex items-center justify-center gap-5 text-[10px] text-brand-muted pointer-events-none flex-wrap px-4">
+            <span><kbd className="bg-white/[0.06] border border-white/[0.1] rounded px-1.5 py-0.5 mr-1">Double-click</kbd>Add text</span>
+            <span><kbd className="bg-white/[0.06] border border-white/[0.1] rounded px-1.5 py-0.5 mr-1">Drag</kbd>Move layer</span>
+            <span><kbd className="bg-white/[0.06] border border-white/[0.1] rounded px-1.5 py-0.5 mr-1">Click canvas</kbd>Play / Pause</span>
+          </div>
+        )}
+      </div>
+    );
+  }
+);
 
 MemeCanvas.displayName = 'MemeCanvas';
 export default MemeCanvas;
